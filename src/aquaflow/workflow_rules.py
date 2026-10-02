@@ -23,7 +23,7 @@ from .regulatory.rolling import Reading, average
 from .reservoir.turnover import State, project_age
 from .treatment.backwash import Filter, choose as choose_filter
 from .treatment.chlorine_ct import Segment, effective_ct
-from .treatment.coagulant import Jar, recommend
+from .treatment.coagulant import Jar, choose
 from .work.confined import Permit, valid
 
 
@@ -44,9 +44,9 @@ def evaluate(name: str, p: dict[str, Any]) -> dict[str, Any]:
         return {"decision": "release" if residual_ok and ct >= float(p.get("required", 0)) else "hold", "value": ct, "evidence": {"ct": ct, "residual_ok": residual_ok}}
     if name == "coagulant_match":
         target = p["target"]
-        jars = [Jar(float(x["raw_ntu"]), float(x["alkalinity"]), float(x["temp"]), float(x["dose"]), float(p.get("_settled_override", x["settled_ntu"]))) for x in p["jars"]]
-        dose = recommend(jars, float(target["ntu"]), float(target["alkalinity"]), float(target["temp"]))
-        return {"decision": "dose", "value": dose, "evidence": {"candidate_count": len(jars)}}
+        jars = [Jar(float(x["raw_ntu"]), float(x["alkalinity"]), float(x["temp"]), float(x["dose"]), float(x["settled_ntu"])) for x in p["jars"]]
+        winner = choose(jars, float(target["ntu"]), float(target["alkalinity"]), float(target["temp"]))
+        return {"decision": "dose", "value": winner.dose, "evidence": {"candidate_count": len(jars), "settled_ntu": winner.settled_ntu}}
     if name == "filter_backwash":
         rows = [Filter(str(x["id"]), float(x["headloss"]), float(x["turbidity"]), _dt(x["last_backwash"]), bool(x.get("online", True))) for x in p["filters"]]
         selected = choose_filter(rows, _dt(p["now"]), int(p["max_offline"]), set(p["offline"]))
