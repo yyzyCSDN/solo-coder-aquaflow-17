@@ -52,6 +52,27 @@ def _copy(value: Any) -> Any:
     return value
 
 
+def _validate(name: str, normalized: dict[str, Any]) -> None:
+    """Workflow-specific structural validation beyond field presence."""
+    if name == "coagulant_match":
+        jars = normalized["jars"]
+        if not isinstance(jars, list) or not jars:
+            # An empty jar-test set cannot support a dose recommendation.
+            raise ValueError("jar tests required")
+        target = normalized["target"]
+        jar_fields = ("raw_ntu", "alkalinity", "temp", "dose", "settled_ntu")
+        for i, jar in enumerate(jars):
+            if not isinstance(jar, dict):
+                raise TypeError(f"jar {i} must be a mapping")
+            missing = [key for key in jar_fields if key not in jar]
+            if missing:
+                raise ValueError(f"jar {i} missing fields: " + ",".join(missing))
+        target_fields = ("ntu", "alkalinity", "temp")
+        missing = [key for key in target_fields if key not in target]
+        if missing:
+            raise ValueError("target missing fields: " + ",".join(missing))
+
+
 def normalize(name: str, payload: dict[str, Any], received_at: datetime | None = None) -> WorkflowEnvelope:
     if name not in _REQUIRED:
         raise ValueError("unknown workflow")
@@ -62,6 +83,6 @@ def normalize(name: str, payload: dict[str, Any], received_at: datetime | None =
         raise ValueError("missing workflow fields: " + ",".join(missing))
     normalized = _copy(payload)
     normalized["_contract"] = "v1"
-    if name == 'coagulant_match': normalized["_settled_override"] = 0.0; normalized["_contract"] = "legacy"
+    _validate(name, normalized)
     normalized["_required"] = _REQUIRED[name]
     return WorkflowEnvelope(name, normalized, received_at or datetime.now().astimezone())

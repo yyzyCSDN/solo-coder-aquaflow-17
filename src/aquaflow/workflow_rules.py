@@ -23,7 +23,7 @@ from .regulatory.rolling import Reading, average
 from .reservoir.turnover import State, project_age
 from .treatment.backwash import Filter, choose as choose_filter
 from .treatment.chlorine_ct import Segment, effective_ct
-from .treatment.coagulant import Jar, recommend
+from .treatment.coagulant import Jar, recommend, rank_candidates, RAW_WEIGHT, SETTLED_WEIGHT
 from .work.confined import Permit, valid
 
 
@@ -44,9 +44,37 @@ def evaluate(name: str, p: dict[str, Any]) -> dict[str, Any]:
         return {"decision": "release" if residual_ok and ct >= float(p.get("required", 0)) else "hold", "value": ct, "evidence": {"ct": ct, "residual_ok": residual_ok}}
     if name == "coagulant_match":
         target = p["target"]
-        jars = [Jar(float(x["raw_ntu"]), float(x["alkalinity"]), float(x["temp"]), float(x["dose"]), float(p.get("_settled_override", x["settled_ntu"]))) for x in p["jars"]]
+        jars = [Jar(float(x["raw_ntu"]), float(x["alkalinity"]), float(x["temp"]), float(x["dose"]), float(x["settled_ntu"])) for x in p["jars"]]
+        ranked = rank_candidates(jars, float(target["ntu"]), float(target["alkalinity"]), float(target["temp"]))
+        best = ranked[0]
+        runner_up = ranked[1] if len(ranked) > 1 else None
         dose = recommend(jars, float(target["ntu"]), float(target["alkalinity"]), float(target["temp"]))
-        return {"decision": "dose", "value": dose, "evidence": {"candidate_count": len(jars)}}
+        evidence = {
+            "candidate_count": len(jars),
+            "weights": {"raw_similarity": RAW_WEIGHT, "settled_turbidity": SETTLED_WEIGHT},
+            "raw_similarity_weights": {"raw_ntu": 0.7, "alkalinity": 0.05, "temp": 0.2},
+            "winning": {
+                "index": best.index,
+                "dose": best.jar.dose,
+                "settled_ntu": best.jar.settled_ntu,
+                "raw_similarity": best.raw_similarity,
+                "score": best.score,
+            },
+            "ranking": [
+                {"index": m.index, "dose": m.jar.dose, "settled_ntu": m.jar.settled_ntu,
+                 "raw_similarity": m.raw_similarity, "score": m.score}
+                for m in ranked
+            ],
+        }
+        if runner_up is not None:
+            evidence["runner_up"] = {
+                "index": runner_up.index,
+                "dose": runner_up.jar.dose,
+                "settled_ntu": runner_up.jar.settled_ntu,
+                "raw_similarity": runner_up.raw_similarity,
+                "score": runner_up.score,
+            }
+        return {"decision": "dose", "value": dose, "evidence": evidence}
     if name == "filter_backwash":
         rows = [Filter(str(x["id"]), float(x["headloss"]), float(x["turbidity"]), _dt(x["last_backwash"]), bool(x.get("online", True))) for x in p["filters"]]
         selected = choose_filter(rows, _dt(p["now"]), int(p["max_offline"]), set(p["offline"]))
